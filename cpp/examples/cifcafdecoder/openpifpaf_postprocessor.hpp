@@ -10,6 +10,8 @@
 namespace lpdnn {
 namespace aiapp_impl {
 
+using FBContainer = std::array<std::array<std::vector<float>, 9>, 19>;
+
 /**
   Post-processing logic for OpenPifPaf
 
@@ -36,19 +38,12 @@ public:
     \param tensorHeight Height of the neural network's PIF and PAF outputs.
     \param tileCoordinates original coordinates of the input image in pixels
   */
-  ai_app::Object_detection::Result postprocess_0_8(
-    int inputWidth, int inputHeight, int tensorWidth, int tensorHeight,
-    const ai_app::Rect& tileCoordinates,
-    const float* pif_c,  // 17xHxW
-    const float* pif_r,  // 34xHxW
-    const float* pif_b,  // 17xHxW
-    const float* pif_s,  // 17xHxW
-    const float* paf_c,  // 19xHxW
-    const float* paf_r1, // 38xHxW
-    const float* paf_r2, // 38xHxW
-    const float* paf_b1, // 19xHxW
-    const float* paf_b2  // 19xHxW
-  );
+  ai_app::Object_detection::Result postprocess(
+  int inputWidth, int inputHeight,
+  int tensorWidth, int tensorHeight,
+  const ai_app::Rect& tileCoordinates,
+  const std::vector<float>& pif,
+  const std::vector<float>& paf);
 
   /**
     Applies post-processing to OpenPifPaf output.
@@ -67,8 +62,8 @@ public:
   );
 
 public:
-  static const int numKeypoints = 17;
-  static const int numBones = 19;
+  static constexpr int numKeypoints = 17;
+  static constexpr int numBones = 19;
 
   // Connections between the different keypoint indices.
   // Note: these start at 1, not 0!
@@ -121,45 +116,28 @@ private:
 private:
   void initTensors(int tensorWidth, int tensorHeight);
 
-  void normalizePAF(const float* intensityFields,
-                    const float* j1Fields,
-                    const float* j2Fields,
-                    const float* j1FieldsLogb,
-                    const float* j2FieldsLogb);
-
-  void normalizePIF(const float* jointIntensityFields,
-                    const float* jointFields,
-                    const float* scaleFields);
-
   Target_intensity
   targetIntensities(const std::vector<float>& pif,
                     float v_th = 0.1f,
                     bool coreOnly = false);
 
-  Paf_target
-  scorePafTarget(const std::vector<float>& paf,
-                 const std::vector<float>& pifhr,
-                 float pifhr_floor = 0.01f,
-                 float score_th = 0.1f);
-
   std::vector<Pifhr_seed>
   pifhrSeeds(const std::vector<float>& pifhrScales,
              const std::vector<float>& pifhrCore);
 
-  std::vector<float> pafCenter(const std::vector<float>& paf_field,
+  std::array<std::vector<float>, 9> pafCenter(const std::array<std::vector<float>, 9>& paf_field,
                                float x, float y, float sigma = 1.0f);
 
-  Connection
-  growConnection(float x, float y, const std::vector<float>& paf_field_);
+  std::tuple<float, float, float, float>
+  growConnectionBlend(float x, float y, float s, const std::array<std::vector<float>, 9>& paf_field_);
 
   std::vector<frontier_t> frontier(Annotation& ann);
 
-  frontier_t frontierIter(Annotation& ann);
+  // frontier_t frontierIter(Annotation& ann);
 
   void grow(Annotation& ann,
-            const std::vector<std::vector<float>>& pafForward,
-            const std::vector<std::vector<float>>& pafBackward,
-            float th = 0.1f);
+            const FBContainer& pafForward,
+            const FBContainer& pafBackward);
 
   void fillJointScales(Annotation& ann,
                        const std::vector<float>& scales,
@@ -168,7 +146,7 @@ private:
                        float hr_scale);
 
   std::vector<Annotation>
-  decodeAnnotations(const std::vector<float>& pifhr,
+  decodeAnnotations(const std::vector<Pifhr_seed>& seeds,const std::vector<float>& pifhr,
                     const std::vector<float>& pifhrScales,
                     const std::vector<float>& pifhrCore,
                     const std::vector<std::vector<float>>& pafForward,
@@ -184,15 +162,13 @@ private:
   int H, W, H_hr, W_hr;
 
   // Strides for tensor dimensions.
-  size_t paf_stride_2, paf_stride_1, paf_stride_0;
+  size_t paf_stride_0;
   size_t pif_stride_1, pif_stride_0;
   size_t pifhr_stride_1, pifhr_stride_0;
 
   // Temporary tensors.
   std::vector<float> indexField;     // 2 x H x W
   std::vector<float> indexField_hr;  // 2 x H x W
-  std::vector<float> paf;            // 19 x 2 x 4 x H x W
-  std::vector<float> pif;            // 17 x     4 x H x W
 
   // Filled in by targetIntensities().
   std::vector<float> targetsCoreOnly;
